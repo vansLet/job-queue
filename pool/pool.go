@@ -1,11 +1,14 @@
 package pool
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+var ErrChannelClose = errors.New("channel close")
 
 type TaskAdder interface {
 	AddTask(func()) error
@@ -84,7 +87,7 @@ func (dp *DefaultPool) AddTask(send func()) error {
 		panic("param send is nil")
 	}
 	if dp.is_close.Load() {
-
+		return ErrChannelClose
 	}
 	dp.channelTask <- send
 	return nil
