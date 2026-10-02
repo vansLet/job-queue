@@ -1,14 +1,14 @@
 package main
 
 import (
+	"jobqueue/pool"
 	"jobqueue/router"
 	"jobqueue/service"
-	"jobqueue/worker"
 	"net/http"
 )
 
 func main() {
-	pool := worker.New(5, false)
+	pool := pool.New(4, nil)
 	defer pool.Close()
 	service := service.NewData(pool)
 	r, err := router.New(service)

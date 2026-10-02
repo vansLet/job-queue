@@ -3,47 +3,47 @@ package service
 import (
 	"errors"
 	"jobqueue/model"
-	"jobqueue/worker"
+	"jobqueue/pool"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type DataTask struct {
-	id   int
+	id   atomic.Int32
 	data []model.Task
-	pool *worker.Pool
+	pool pool.TaskAdder
 	mx   *sync.RWMutex
 }
 
 var ErrNotFound error = errors.New("task not found")
 
-func NewData(worker *worker.Pool) *DataTask {
-	return &DataTask{id: 1, data: make([]model.Task, 0, 10), pool: worker, mx: &sync.RWMutex{}}
+func NewData(worker pool.TaskAdder) *DataTask {
+	return &DataTask{id: atomic.Int32{}, data: make([]model.Task, 0, 10), pool: worker, mx: &sync.RWMutex{}}
 }
 
 func (d *DataTask) CreateTask(job model.Task) (model.Task, error) {
 	j := job
-	d.mx.RLock()
-	j.ID = d.id
-	d.mx.RUnlock()
-	//
+	j.ID = int(d.id.Add(1))
 	j.Status = model.Pending
 	j.CreateAt = time.Now()
-	d.pool.SpawnJob(func() {
+
+	d.pool.AddTask(func() {
 		d.mx.Lock()
 		defer d.mx.Unlock()
 		c := j
 		c.Status = model.Complete
 		d.data = append(d.data, c)
-		d.id++
 	})
 	return j, nil
 }
 
 func (d *DataTask) GetAll() []model.Task {
-	d.mx.RLock()
-	defer d.mx.RUnlock()
-	return d.data
+	d.mx.Lock()
+	defer d.mx.Unlock()
+	cdata := make([]model.Task, len(d.data))
+	copy(cdata, d.data)
+	return cdata
 }
 
 func (d *DataTask) GetById(id int) (model.Task, error) {
