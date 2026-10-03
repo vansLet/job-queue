@@ -2,7 +2,9 @@ package router
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"jobqueue/model"
+	"jobqueue/pool"
 	"jobqueue/service"
 	"jobqueue/web"
 	"net/http"
@@ -60,6 +62,18 @@ type TaskRouter struct {
 	data *service.DataTask
 }
 
+func handleErrPool(w http.ResponseWriter, err error) {
+	if err != nil {
+		if errors.Is(err, pool.ErrChannelClose) {
+			ErrRespone(w, http.StatusInternalServerError, "server is close")
+			return
+		} else {
+			ErrRespone(w, http.StatusBadRequest, "cannot create task")
+		}
+
+	}
+}
+
 func (task *TaskRouter) CreateJob(w http.ResponseWriter, r *http.Request) {
 	newTask, err := taskFromRequest(r)
 	if err != nil {
@@ -67,9 +81,9 @@ func (task *TaskRouter) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s, err := task.data.CreateTask(newTask)
+	s, err := task.data.CreateTask(r.Context(), newTask)
 	if err != nil {
-		ErrRespone(w, http.StatusBadRequest, err)
+		handleErrPool(w, err)
 		return
 	}
 	SuccRespone(w, http.StatusCreated, web.ToRespone(s))

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"jobqueue/model"
 	"jobqueue/pool"
@@ -22,19 +23,23 @@ func NewData(worker pool.TaskAdder) *DataTask {
 	return &DataTask{id: atomic.Int32{}, data: make([]model.Task, 0, 10), pool: worker, mx: &sync.RWMutex{}}
 }
 
-func (d *DataTask) CreateTask(job model.Task) (model.Task, error) {
+func (d *DataTask) CreateTask(ctx context.Context, job model.Task) (model.Task, error) {
 	j := job
 	j.ID = int(d.id.Add(1))
 	j.Status = model.Pending
 	j.CreateAt = time.Now()
 
-	d.pool.AddTask(func() {
+	err := d.pool.AddTask(ctx, func() {
 		d.mx.Lock()
 		defer d.mx.Unlock()
 		c := j
+		time.Sleep(time.Second)
 		c.Status = model.Complete
 		d.data = append(d.data, c)
 	})
+	if err != nil {
+		return model.Task{}, err
+	}
 	return j, nil
 }
 
