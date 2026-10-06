@@ -1,18 +1,15 @@
 package router
 
 import (
-	"encoding/json/v2"
-	"errors"
-	"jobqueue/model"
-	"jobqueue/pool"
-	"jobqueue/service"
+	"fmt"
+	"jobqueue/db"
 	"jobqueue/web"
 	"net/http"
 	"strconv"
 )
 
-func New(s *service.DataTask) (*http.ServeMux, error) {
-	r := TaskRouter{data: s}
+func New(db db.DatabaseTasks) (*http.ServeMux, error) {
+	r := TaskRouter{db: db}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /jobs", r.CreateJob)
 	mux.HandleFunc("GET /jobs", r.GetJobs)
@@ -21,57 +18,8 @@ func New(s *service.DataTask) (*http.ServeMux, error) {
 	return mux, nil
 }
 
-func ErrRespone(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	d := map[string]any{
-		"err": data,
-	}
-	if err := json.MarshalWrite(w, d); err != nil {
-		responeServerErr(w, http.StatusInternalServerError, "internal server error")
-
-	}
-}
-
-func SuccRespone(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	d := map[string]any{
-		"data": data,
-	}
-	if err := json.MarshalWrite(w, d); err != nil {
-		responeServerErr(w, http.StatusInternalServerError, "internal server error")
-	}
-}
-
-func taskFromRequest(r *http.Request) (model.Task, error) {
-	defer r.Body.Close()
-	var newTask web.TaskRequest
-	err := json.UnmarshalRead(r.Body, &newTask)
-	if err != nil {
-		return model.Task{}, err
-	}
-	return web.FromRequest(newTask), nil
-}
-
-func responeServerErr(w http.ResponseWriter, status int, err string) {
-	http.Error(w, err, status)
-}
-
 type TaskRouter struct {
-	data *service.DataTask
-}
-
-func handleErrPool(w http.ResponseWriter, err error) {
-	if err != nil {
-		if errors.Is(err, pool.ErrChannelClose) {
-			ErrRespone(w, http.StatusInternalServerError, "server is close")
-			return
-		} else {
-			ErrRespone(w, http.StatusBadRequest, "cannot create task")
-		}
-
-	}
+	db db.DatabaseTasks
 }
 
 func (task *TaskRouter) CreateJob(w http.ResponseWriter, r *http.Request) {
@@ -81,8 +29,9 @@ func (task *TaskRouter) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s, err := task.data.CreateTask(r.Context(), newTask)
+	s, err := task.db.Add(r.Context(), newTask)
 	if err != nil {
+		fmt.Println(err)
 		handleErrPool(w, err)
 		return
 	}
@@ -91,7 +40,7 @@ func (task *TaskRouter) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 func (task *TaskRouter) GetJobs(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	s := task.data.GetAll()
+	s := task.db.Gets(r.Context())
 	d := make([]web.ResponeTask, 0, len(s))
 	for _, t := range s {
 		d = append(d, web.ToRespone(t))
@@ -107,13 +56,9 @@ func (task *TaskRouter) GetById(w http.ResponseWriter, r *http.Request) {
 		ErrRespone(w, http.StatusBadRequest, "\"id\" not format number")
 		return
 	}
-	s, err := task.data.GetById(id)
+	s, err := task.db.GetById(r.Context(), id)
 	if err != nil {
-		e := map[string]any{
-			"id":  id,
-			"msg": err.Error(),
-		}
-		ErrRespone(w, http.StatusNotFound, e)
+		responeIdNotFound(w, id)
 		return
 	}
 	SuccRespone(w, http.StatusOK, web.ToRespone(s))
@@ -127,13 +72,9 @@ func (task *TaskRouter) DeleteById(w http.ResponseWriter, r *http.Request) {
 		ErrRespone(w, http.StatusBadRequest, "\"id\" not format number")
 		return
 	}
-	err = task.data.Delete(id)
+	err = task.db.Remove(r.Context(), id)
 	if err != nil {
-		e := map[string]any{
-			"id":  id,
-			"msg": err.Error(),
-		}
-		ErrRespone(w, http.StatusNotFound, e)
+		responeIdNotFound(w, id)
 		return
 	}
 	s := map[string]any{

@@ -31,10 +31,6 @@ func TestSendPool(t *testing.T) {
 		_ = pool.AddTask(t.Context(), func() {
 			panic("")
 		})
-		// if err == nil {
-		// 	t.Fatal("err harus ada")
-		// }
-
 		_ = pool.AddTask(t.Context(), func() {
 			// panic("")
 			fmt.Println("Hello World")
